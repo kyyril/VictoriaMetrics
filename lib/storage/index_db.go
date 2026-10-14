@@ -775,6 +775,15 @@ func (db *indexDB) SearchLabelValues(ctx context.Context, qt *querytracer.Tracer
 		return nil, nil
 	}
 
+	lvs, err := db.searchLabelValues(ctx, qt, labelName, tfss, trAdjusted, maxLabelValues, maxMetrics)
+	if err != nil {
+		return nil, db.wrapError("search label values", err)
+	}
+	qt.Printf("found %d label values", len(lvs))
+	return lvs, nil
+}
+
+func (db *indexDB) searchLabelValues(ctx context.Context, qt *querytracer.Tracer, labelName string, tfss []*TagFilters, tr TimeRange, maxLabelValues, maxMetrics int) (map[string]struct{}, error) {
 	key := labelName
 	if key == "__name__" {
 		key = ""
@@ -782,11 +791,11 @@ func (db *indexDB) SearchLabelValues(ctx context.Context, qt *querytracer.Tracer
 	if len(tfss) == 1 && len(tfss[0].tfs) == 1 && string(tfss[0].tfs[0].key) == key {
 		// tfss contains only a single filter on labelName. It is faster searching for label values
 		// without any filters and limits and then later applying the filter and the limit to the found label values.
-		qt.Printf("search up to %d values for the label %q on the time range %s", maxMetrics, labelName, &trAdjusted)
+		qt.Printf("search up to %d values for the label %q on the time range %s", maxMetrics, labelName, &tr)
 
-		lvs, err := db.searchLabelValues(ctx, qt, labelName, nil, trAdjusted, maxMetrics, maxMetrics)
+		lvs, err := db.searchLabelValuesForTimeRange(ctx, qt, labelName, nil, tr, maxMetrics, maxMetrics)
 		if err != nil {
-			return nil, db.wrapError("search label values", err)
+			return nil, err
 		}
 
 		needSlowSearch := len(lvs) == maxMetrics
@@ -802,19 +811,12 @@ func (db *indexDB) SearchLabelValues(ctx context.Context, qt *querytracer.Tracer
 			needSlowSearch = false
 		}
 		if !needSlowSearch {
-			qt.Printf("found %d label values", len(lvs))
 			return lvs, nil
 		}
 		qt.Printf("fall back to slow search because only a subset of label values is found")
 	}
 
-	lvs, err := db.searchLabelValues(ctx, qt, labelName, tfss, trAdjusted, maxMetrics, maxMetrics)
-	if err != nil {
-		return nil, db.wrapError("search label values", err)
-	}
-
-	qt.Printf("found %d label values", len(lvs))
-	return lvs, nil
+	return db.searchLabelValuesForTimeRange(ctx, qt, labelName, tfss, tr, maxMetrics, maxMetrics)
 }
 
 func filterLabelValues(lvs map[string]struct{}, tf *tagFilter, key string) {
@@ -833,7 +835,7 @@ func filterLabelValues(lvs map[string]struct{}, tf *tagFilter, key string) {
 	}
 }
 
-func (db *indexDB) searchLabelValues(ctx context.Context, qt *querytracer.Tracer, labelName string, tfss []*TagFilters, tr TimeRange, maxLabelValues, maxMetrics int) (map[string]struct{}, error) {
+func (db *indexDB) searchLabelValuesForTimeRange(ctx context.Context, qt *querytracer.Tracer, labelName string, tfss []*TagFilters, tr TimeRange, maxLabelValues, maxMetrics int) (map[string]struct{}, error) {
 	if tr == globalIndexTimeRange {
 		qtChild := qt.NewChild("search for label values in global index: labelName=%q, filters=%s", labelName, tfss)
 		lvs, err := db.searchLabelValuesByDateAndFilters(ctx, qtChild, globalIndexDate, labelName, tfss, maxLabelValues, maxMetrics)
