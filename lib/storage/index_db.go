@@ -1201,7 +1201,7 @@ func (db *indexDB) searchGraphitePaths(ctx context.Context, tr TimeRange, qHead,
 		qHead = append(qHead, qTail...)
 		suffixes, err := db.searchTagValueSuffixes(ctx, tr, "", bytesutil.ToUnsafeString(qHead), '.', 1)
 		if err != nil {
-			return nil, db.wrapError("search graphite paths", err)
+			return nil, err
 		}
 		if len(suffixes) == 0 {
 			// The query doesn't match anything.
